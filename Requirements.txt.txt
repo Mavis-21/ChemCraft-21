@@ -1,0 +1,7 @@
+streamlit
+streamlit-option-menu
+rdkit
+py3Dmol
+requests
+pandas
+mysql-connector-python
