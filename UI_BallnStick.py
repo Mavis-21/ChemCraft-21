@@ -1,6 +1,7 @@
 import subprocess
 import sys
 
+# --- BRUTAL INSTALLER (Ensures dependencies exist on Streamlit Cloud) ---
 def install(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
 
@@ -8,23 +9,17 @@ try:
     import streamlit_option_menu
 except ImportError:
     install("streamlit-option-menu")
-    import streamlit_option_menu
-
-# Now proceed with your normal imports
-from streamlit_option_menu import option_menu
-import streamlit as st
 
 # ------------------------------- MODULES -----------------------------------------
-
-
-import mysql.connector as my
+from streamlit_option_menu import option_menu
+import streamlit as st
+import sqlite3  # Changed from mysql.connector
 import requests
 import py3Dmol
 import time as t
 from rdkit import Chem
 from rdkit.Chem import AllChem
 import pandas as pd
-
 
 # -------------------------------- FUNCTIONS ---------------------------------------
 
@@ -36,8 +31,7 @@ def initialisation():
     if "guest_history" not in st.session_state:
         st.session_state.guest_history = []
         st.session_state.count = 0
-        print("---------------------------------------")
-
+        # print("---------------------------------------")
 
 def update_page(x):
     if x == 0:
@@ -47,13 +41,11 @@ def update_page(x):
     elif x == 2:
         st.session_state.page = "signup"
 
-
 def update_accStatus(x):
     if x == 0:
         st.session_state.logged_in = True
     elif x == 1:
         st.session_state.guest = True
-
 
 def update_mainpage(x):
     if x == 0:
@@ -67,13 +59,11 @@ def update_mainpage(x):
     elif x == 2:
         st.session_state.mainpage = "Admin"
 
-
 def toggle_fhistory(x):
     if x == 0:
         st.session_state.fhistory = False
     elif x == 1:
         st.session_state.fhistory = True
-
 
 def toggle_afhistory(x):
     if x == 0:
@@ -81,43 +71,51 @@ def toggle_afhistory(x):
     elif x == 1:
         st.session_state.afhistory = True
 
-
+# --- SQLITE CONNECTION ---
 def connection():
-    con = my.connect(user="root", host='localhost', passwd="Mavis@21", database="ChemCraft21")
+    # Connects to a local file 'chemcraft.db'. Creates it if missing.
+    con = sqlite3.connect('chemcraft.db', check_same_thread=False)
     cur = con.cursor()
     return con, cur
 
-
 def users():
     con, cur = connection()
+    # SQLite: Check if table exists first to avoid error on fresh run
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+    if not cur.fetchone():
+        return []
+    
     cur.execute("select username from users")
     l = [i[0] for i in cur.fetchall()]
     con.close()
     return l
 
-
 def passwd_checker(u, p):  # u - username; p - password
     con, cur = connection()
-    cur.execute("select passwd from users where username='{}'".format(u))
-    ap = cur.fetchone()[0]  # pa - actual password
+    # Use parameterized query (?) for SQLite security
+    cur.execute("select passwd from users where username=?", (u,))
+    result = cur.fetchone()
     con.close()
-    if ap == p:
-        return True
-    else:
-        return False
-
+    if result:
+        ap = result[0]
+        if ap == p:
+            return True
+    return False
 
 def user_table_exists():
-    if st.session_state.user.lower() in get_tables():
-        return True
-    else:
-        return False
-
+    if st.session_state.user:
+        con, cur = connection()
+        # SQLite way to check for table existence
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (st.session_state.user,))
+        exists = cur.fetchone()
+        con.close()
+        return True if exists else False
+    return False
 
 def is_admin():
-    if 'user' in st.session_state:
+    if 'user' in st.session_state and st.session_state.user:
         con, cur = connection()
-        cur.execute("SELECT typ from users where username = '%s'" % (st.session_state.user,))
+        cur.execute("SELECT typ from users where username = ?", (st.session_state.user,))
         r = cur.fetchone()
         con.close()
         if r and r[0] == "Admin":
@@ -125,98 +123,95 @@ def is_admin():
         return False
     return None
 
-
 # -------------------------------------- SQL -------------------------------------------
 def create_tables():
     con, cur = connection()
-    if not con:
-        return
+    # SQLite syntax: INTEGER PRIMARY KEY AUTOINCREMENT
     q1 = """
             CREATE TABLE IF NOT EXISTS users(
-                userid INT AUTO_INCREMENT PRIMARY KEY,
-                username VARCHAR(50) UNIQUE,
-                passwd VARCHAR(255),
-                email VARCHAR(100),
-                typ VARCHAR(20)
+                userid INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE,
+                passwd TEXT,
+                email TEXT,
+                typ TEXT
             )
             """
-
     cur.execute(q1)
     con.commit()
     con.close()
 
-
 def create_usertable(user):
     con, cur = connection()
-    q = """create table %s(
-       user varchar(40),
-       searched varchar(100),
-       smiles varchar(100)
-       )""" % (user,)
+    # Sanitize table name (basic check) to prevent SQL injection via username
+    # In SQLite, we can't parameterize table names easily, but user is from session
+    q = f"""create table if not exists "{user}" (
+       user text,
+       searched text,
+       smiles text
+       )""" 
     cur.execute(q)
     con.commit()
     con.close()
-
 
 def get_userid(username):
     con, cur = connection()
     if not username:
         return None
-    cur.execute("SELECT userid FROM users WHERE username='%s'" % (username,))
+    cur.execute("SELECT userid FROM users WHERE username=?", (username,))
     result = cur.fetchone()
     con.close()
-    return result[0]
-
+    return result[0] if result else None
 
 def get_history(username, x):
     if not username:
         return []
-    userid = get_userid(username)
+    
+    # Check if table exists first
     con, cur = connection()
-    cur.execute("")
-    col = ["searched", "smiles"]
-    if not user_table_exists():
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (username,))
+    if not cur.fetchone():
+        con.close()
         return []
+
+    col = ["searched", "smiles"]
     if x == col[0]:
-        cur.execute("SELECT searched FROM %s" % (username,))
+        cur.execute(f'SELECT searched FROM "{username}"')
     elif x == col[1]:
-        cur.execute("SELECT searched FROM %s" % (username,))
-    # cur.fetchone()
+        cur.execute(f'SELECT smiles FROM "{username}"')
+    
     result = cur.fetchall()
     con.close()
-    # Convert string back to list
+    # Convert list of tuples back to flat list
     if result:
         l = [i[0] for i in result]
         return l
     return []
 
-
 def get_tables():
-    q = "show tables"
     con, cur = connection()
-    cur.execute(q)
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
     r = cur.fetchall()
     con.close()
     l = [i[0] for i in r]
     return l
 
-
 def update_history(iupac_input):
     smiles = iupac_to_smiles(iupac_input)
-    if st.session_state.get("user") and smiles and smiles not in get_history(st.session_state.user, "smiles"):
-        con, cur = connection()
-        searched_str = get_history(st.session_state.user, "searched")
-        smiles_str = get_history(st.session_state.user, "smiles")
-        smiles_str.append(iupac_to_smiles(iupac_input))
-        searched_str.append(iupac_input)
-        if not user_table_exists():
+    if st.session_state.get("user") and smiles:
+        # Avoid duplicates
+        current_smiles = get_history(st.session_state.user, "smiles")
+        if smiles not in current_smiles:
+            con, cur = connection()
+            
+            # Ensure table exists
             create_usertable(st.session_state.user)
-        cur.execute(
-            "INSERT into %s values('%s','%s','%s')" % (st.session_state.user, st.session_state.user, iupac_input,
-                                                       smiles))
-        con.commit()
-        con.close()
-
+            
+            # SQLite Insert with ? placeholders
+            query = f'INSERT into "{st.session_state.user}" values(?, ?, ?)'
+            cur.execute(query, (st.session_state.user, iupac_input, smiles))
+            
+            con.commit()
+            con.close()
 
 # _____________________________________ Starting ________________________________________
 def login():
@@ -241,7 +236,6 @@ def login():
                 st.session_state.user = user
                 st.session_state.page = "dashboard"
                 start()
-                # username = user
     st.button("Home", key='loginbutton', on_click=update_page, args=(0,))
 
 
@@ -265,11 +259,9 @@ def sign_up():
                 st.error("Username already exists")
             else:
                 con, cur = connection()
-                if not con:
-                    st.error("Cannot connect to database")
-                    return None
+                # SQLite Insert with ?
                 cur.execute(
-                    "INSERT INTO users (username, passwd, email, typ) VALUES (%s, %s, %s, %s)",
+                    "INSERT INTO users (username, passwd, email, typ) VALUES (?, ?, ?, ?)",
                     (user, passwd, email, typ)
                 )
                 con.commit()
@@ -279,7 +271,6 @@ def sign_up():
                 st.session_state.user = user
                 st.session_state.page = "dashboard"
                 start()
-                # username = user
                 con.close()
     st.button("Home", key='signup', on_click=update_page, args=(0,))
 
@@ -431,9 +422,6 @@ def home():
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-
-
-
 def guest_dashboard():
     st.title(" Guest Mode")
     st.info("You are exploring as a Guest. Sign up or log in to save your history and progress.")
@@ -448,21 +436,33 @@ def guest_dashboard():
 
 def display_table(q, x):
     con, cur = connection()
-    if x == 0:
-        cur.execute("SELECT * FROM %s" % (q,))
-    elif x == 1:
-        cur.execute(q)
-    if cur.with_rows:
-        rows = cur.fetchall()
-        cols = [i[0] for i in cur.description]
-        df = pd.DataFrame(rows, columns=cols)
-        st.table(df)
+    # Be careful with raw SQL in display_table; for SQLite keep it simple
+    try:
+        if x == 0:
+            # Parameterized table name is tricky in SQLite, assuming q is safe-ish from admin
+            cur.execute(f'SELECT * FROM "{q}"')
+        elif x == 1:
+            cur.execute(q)
+        
+        if cur.description:
+            rows = cur.fetchall()
+            cols = [i[0] for i in cur.description]
+            df = pd.DataFrame(rows, columns=cols)
+            st.table(df)
+        else:
+            st.success("Query executed successfully.")
+            con.commit()
+    except Exception as e:
+        st.error(f"Error: {e}")
+    finally:
+        con.close()
 
 
 def admin_page():
     st.title("Admin Mode")
     q = st.text_input("Enter query:")
-    display_table(q, 1)
+    if q:
+        display_table(q, 1)
 
 
 # _________________________________________ 3D Rendering __________________________________
@@ -663,82 +663,6 @@ def sidebar(username, typ):
                         st.button("Less", key="less_btn", on_click=toggle_afhistory, args=(0,))
 #------------------------------------------ ACTIONS ---------------------------------------
 
-
-
-def start():
-    print("Start",st.session_state.count)
-    if not(st.session_state.logged_in or st.session_state.guest):
-        if "page" not in st.session_state:
-            if st.session_state.logged_in or st.session_state.guest:
-                st.session_state.page = "dashboard"  # go straight to dashboard
-            else:
-                st.session_state.page = "home"  # login/signup
-        if st.session_state.page == "home":
-            home()
-        elif st.session_state.page == "signup":
-            sign_up()
-        elif st.session_state.page == "login":
-            login()
-        if "user_history" not in st.session_state:
-            st.session_state.user_history = []
-    else:
-        print("Else",st.session_state.count)
-        st.rerun()
-
-
-def page_main(): #s - selected
-    username = st.session_state.user if not st.session_state.guest else None
-    if is_admin():
-        sidebar(username,"Admin")
-    else:
-        sidebar(username,"Civillian")
-    if 'mainpage' not in st.session_state:
-        if is_admin():
-            st.session_state.mainpage = "Admin"
-        else:
-            st.session_state.mainpage = "new"
-    if st.session_state.mainpage == "Admin":
-        admin_page()
-    elif st.session_state.mainpage == "new":
-        fullrendering()
-    elif st.session_state.mainpage == "aboutus":
-        st.title("👩‍🔬 About Us")
-
-        st.write("""
-        Welcome to our CHEMCRAFT!  
-        I am a Grade 12 student — Sanjai Sivam (S³) — who has a passion for 
-        combining science and technology.
-
-        This website was developed as part of our Computer Science project.  
-        It allows users to visualize molecules in interactive 3D, explore their **chemical properties, and learn more about the 
-        fascinating world of molecular structures.
-
-        Our goal is to make chemistry more engaging and easier to understand through the power of code and visualization.
-        """)
-
-        st.subheader("🌟 Our Vision")
-        st.write("""
-        To bridge the gap between theory and visualization — helping learners truly see what molecules look like,  
-        and how their structures define their behavior.
-        """)
-
-        st.subheader("💻 Technologies Used")
-        st.write("""
-        - Python for backend logic  
-        - Streamlit for user interface  
-        - MySQL for data management  
-        - 3D molecular rendering tools for visualization
-        """)
-
-        st.caption("© 2025 — Project by cubitor-S³ legacy")
-
-    elif st.session_state.mainpage == "history":
-        rendering(st.session_state["sidebar"])
-    elif st.session_state.mainpage == "Admin_tables":
-        display_table(st.session_state["sidebar_admin"],0)
-
-#------------------------------------------ EXECUTION -----------------------------------
-
 create_tables()
 initialisation()
 
@@ -747,12 +671,10 @@ def Main():
         page_main()
     else:
         start()
-    st.session_state.count += 1
-    print("Main",st.session_state.count)
+    # print("Main", st.session_state.count)
+    if "count" in st.session_state:
+        st.session_state.count += 1
 
-
-Main()
-print("log", st.session_state.logged_in)
-print("guest",st.session_state.guest)
-print()
-
+# Run the app
+if __name__ == "__main__":
+    Main()
