@@ -1,7 +1,22 @@
-# ------------------------------- MODULES -----------------------------------------
+import subprocess
+import sys
 
+def install(package):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+try:
+    import streamlit_option_menu
+except ImportError:
+    install("streamlit-option-menu")
+    import streamlit_option_menu
+
+# Now proceed with your normal imports
 from streamlit_option_menu import option_menu
 import streamlit as st
+
+# ------------------------------- MODULES -----------------------------------------
+
+
 import mysql.connector as my
 import requests
 import py3Dmol
@@ -740,3 +755,4 @@ Main()
 print("log", st.session_state.logged_in)
 print("guest",st.session_state.guest)
 print()
+
