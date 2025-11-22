@@ -1,15 +1,3 @@
-import subprocess
-import sys
-
-# --- BRUTAL INSTALLER (Ensures dependencies exist on Streamlit Cloud) ---
-def install(package):
-    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
-try:
-    import streamlit_option_menu
-except ImportError:
-    install("streamlit-option-menu")
-
 # ------------------------------- MODULES -----------------------------------------
 from streamlit_option_menu import option_menu
 import streamlit as st
@@ -678,3 +666,4 @@ def Main():
 # Run the app
 if __name__ == "__main__":
     Main()
+
