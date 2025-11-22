@@ -1,3 +1,16 @@
+import subprocess
+import sys
+
+def install(package):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+try:
+    import streamlit_option_menu
+except ImportError:
+    install("streamlit-option-menu")
+    import streamlit_option_menu
+
+# Now proceed with your normal imports
 # ------------------------------- MODULES -----------------------------------------
 from streamlit_option_menu import option_menu
 import streamlit as st
@@ -666,4 +679,5 @@ def Main():
 # Run the app
 if __name__ == "__main__":
     Main()
+
 
